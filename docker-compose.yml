@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # M/M/1 Server with Istio sidecar
+  mm1-server:
+    image: bistrulli/generic-microservice-tester:0.6
+    container_name: mm1-server
+    environment:
+      SERVICE_NAME: "MM1-Server"
+      SERVICE_TIME_SECONDS: "0.0001"  # Configurable service time
+      OUTBOUND_CALLS: ""
+      GUNICORN_WORKERS: "1" # 1 pocess worker
+      GUNICORN_THREADS: "1" # 1 thread per worker
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0' # 1 CPU core
+          memory: 1536M
+        reservations:
+          cpus: '1.0'
+          memory: 1536M
+    networks:
+      - spe-network
+
+  # Envoy Proxy (simpler than Istio)
+  envoy-proxy:
+    image: envoyproxy/envoy:v1.28.0
+    container_name: envoy-proxy
+    ports:
+      - "8084:8084"   # Application traffic
+      - "9901:9901"   # Admin interface with metrics
+    volumes:
+      - ./envoy-config.yaml:/etc/envoy/envoy.yaml:ro
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
+    depends_on:
+      - mm1-server
+    networks:
+      - spe-network
+
+  # cAdvisor - Container monitoring
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: cadvisor
+    ports:
+      - "8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    restart: unless-stopped
+    networks:
+      - spe-network
+
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - spe-network
+
+volumes:
+  prometheus_data:
+
+networks:
+  spe-network:
+    driver: bridge

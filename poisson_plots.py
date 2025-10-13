@@ -370,95 +370,314 @@ def plot_exponential_interarrival_analysis(lambda_rate=5, n_samples=5000):
 
     # Top left: Histogram with theoretical overlay
     axes[0,0].hist(inter_arrivals, bins=50, density=True, alpha=0.7,
-                  color='skyblue', edgecolor='black', label='Simulated')
+                  color='skyblue', edgecolor='black', label='Actual gaps')
 
     # Overlay theoretical exponential PDF
     x = np.linspace(0, 2, 200)
     theoretical_pdf = lambda_rate * np.exp(-lambda_rate * x)
-    axes[0,0].plot(x, theoretical_pdf, 'r-', linewidth=2, label='Theoretical Exp(λ)')
-    axes[0,0].set_xlabel('Inter-arrival Time (seconds)')
-    axes[0,0].set_ylabel('Density')
-    axes[0,0].set_title('Inter-arrival Times Distribution')
+    axes[0,0].plot(x, theoretical_pdf, 'r-', linewidth=2, label='Expected (exponential)')
+
+    # Add annotation
+    axes[0,0].annotate('Most gaps are short!\n(Few long gaps)',
+                      xy=(0.8, theoretical_pdf[int(0.8*len(x))]),
+                      xytext=(1.2, max(theoretical_pdf)*0.7),
+                      arrowprops=dict(arrowstyle='->', color='darkred'),
+                      fontsize=10, ha='center',
+                      bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow"))
+
+    axes[0,0].set_xlabel('Time between consecutive requests (seconds)')
+    axes[0,0].set_ylabel('Probability density')
+    axes[0,0].set_title('Key Insight: Most requests arrive close together', fontweight='bold')
     axes[0,0].legend()
     axes[0,0].grid(True, alpha=0.3)
 
-    # Top right: Q-Q plot for goodness of fit
-    theoretical_quantiles = stats.expon.ppf(np.linspace(0.01, 0.99, 100), scale=1/lambda_rate)
-    sample_quantiles = np.percentile(inter_arrivals, np.linspace(1, 99, 100))
+    # Top right: Timeline showing real arrival pattern
+    arrival_times = np.cumsum(inter_arrivals[:50])
+    axes[0,1].scatter(arrival_times, range(1, 51), alpha=0.7, s=60, color='green')
 
-    axes[0,1].scatter(theoretical_quantiles, sample_quantiles, alpha=0.6, s=20)
-    min_val = min(theoretical_quantiles.min(), sample_quantiles.min())
-    max_val = max(theoretical_quantiles.max(), sample_quantiles.max())
-    axes[0,1].plot([min_val, max_val], [min_val, max_val], 'r-', linewidth=2, label='Perfect fit')
-    axes[0,1].set_xlabel('Theoretical Quantiles')
-    axes[0,1].set_ylabel('Sample Quantiles')
-    axes[0,1].set_title('Q-Q Plot: Exponential Fit Assessment')
+    # Add average rate line
+    axes[0,1].plot([0, arrival_times[-1]], [0, 50], 'r--', linewidth=2,
+                   label=f'Average rate: {lambda_rate} req/s')
+
+    # Highlight burst periods
+    burst_periods = []
+    for i in range(1, len(arrival_times)):
+        if arrival_times[i] - arrival_times[i-1] < 0.1:  # Quick succession
+            burst_periods.extend([i, i+1])
+
+    if burst_periods:
+        axes[0,1].scatter([arrival_times[i-1] for i in set(burst_periods[:10])],
+                         [i for i in set(burst_periods[:10])],
+                         color='red', s=80, alpha=0.8, label='Bursts')
+
+    axes[0,1].set_xlabel('Time (seconds)')
+    axes[0,1].set_ylabel('Request number')
+    axes[0,1].set_title('Real Pattern: Requests come in bursts and gaps', fontweight='bold')
     axes[0,1].legend()
     axes[0,1].grid(True, alpha=0.3)
 
-    # Bottom left: Arrival timeline
-    arrival_times = np.cumsum(inter_arrivals[:50])
-    axes[1,0].scatter(arrival_times, range(1, 51), alpha=0.7, s=50, color='green')
-    axes[1,0].set_xlabel('Time (seconds)')
-    axes[1,0].set_ylabel('Arrival Number')
-    axes[1,0].set_title('Timeline of First 50 Arrivals')
+    # Bottom left: Load variability over time
+    window_size = 1.0  # 1 second windows
+    max_time = arrival_times[-1]
+    time_windows = np.arange(0, max_time, window_size)
+    requests_per_window = []
+
+    for t in time_windows:
+        count = np.sum((arrival_times >= t) & (arrival_times < t + window_size))
+        requests_per_window.append(count)
+
+    axes[1,0].bar(time_windows, requests_per_window, width=window_size*0.8,
+                  alpha=0.7, color='orange', edgecolor='black')
+    axes[1,0].axhline(lambda_rate * window_size, color='red', linestyle='--',
+                     linewidth=2, label=f'Expected: {lambda_rate * window_size:.1f} req/s')
+
+    axes[1,0].set_xlabel('Time window (seconds)')
+    axes[1,0].set_ylabel('Requests in window')
+    axes[1,0].set_title('SPE Impact: Highly variable load per time window', fontweight='bold')
+    axes[1,0].legend()
     axes[1,0].grid(True, alpha=0.3)
 
-    # Add rate indication
-    expected_rate_line = arrival_times[-1] / 50
-    axes[1,0].axline((0, 0), slope=1/expected_rate_line, color='red', linestyle='--',
-                    label=f'Expected rate: {lambda_rate:.1f} req/s')
-    axes[1,0].legend()
-
-    # Bottom right: Memoryless property demonstration
-    # Split data into groups based on previous inter-arrival time
+    # Bottom right: Memoryless property - key for modeling
     short_previous = inter_arrivals[1:][inter_arrivals[:-1] < 1/lambda_rate]
     long_previous = inter_arrivals[1:][inter_arrivals[:-1] >= 1/lambda_rate]
 
-    axes[1,1].hist(short_previous, bins=30, density=True, alpha=0.6,
+    axes[1,1].hist(short_previous, bins=25, density=True, alpha=0.6,
                   color='lightblue', label='After short gap', edgecolor='black')
-    axes[1,1].hist(long_previous, bins=30, density=True, alpha=0.6,
+    axes[1,1].hist(long_previous, bins=25, density=True, alpha=0.6,
                   color='lightcoral', label='After long gap', edgecolor='black')
 
     # Theoretical curve (should be same for both)
     x = np.linspace(0, 1.5, 100)
     theoretical_pdf = lambda_rate * np.exp(-lambda_rate * x)
-    axes[1,1].plot(x, theoretical_pdf, 'k-', linewidth=2, label='Theoretical')
+    axes[1,1].plot(x, theoretical_pdf, 'k-', linewidth=3, label='Same distribution!')
 
-    axes[1,1].set_xlabel('Next Inter-arrival Time (seconds)')
+    axes[1,1].text(0.7, 0.7, 'Memoryless:\nPast doesn\'t\npredict future',
+                   transform=axes[1,1].transAxes, fontsize=11,
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.8))
+
+    axes[1,1].set_xlabel('Next gap duration (seconds)')
     axes[1,1].set_ylabel('Density')
-    axes[1,1].set_title('Memoryless Property Demonstration')
+    axes[1,1].set_title('Modeling Advantage: Simple to predict statistically', fontweight='bold')
     axes[1,1].legend()
     axes[1,1].grid(True, alpha=0.3)
 
+    plt.suptitle('Inter-arrival Times: Why Exponential Distribution Matters for SPE',
+                 fontsize=16, fontweight='bold')
     plt.tight_layout()
     plt.show()
 
-    # Statistical validation
+    # Enhanced pedagogical output
+    print("Key Insights for Software Performance Engineering:")
+    print("=" * 55)
+
     expected_mean = 1/lambda_rate
     observed_mean = np.mean(inter_arrivals)
-    expected_std = 1/lambda_rate
-    observed_std = np.std(inter_arrivals)
+    variability = np.std(inter_arrivals) / observed_mean
 
-    print("Statistical Validation:")
-    print("=" * 30)
-    print(f"Expected mean: {expected_mean:.3f}s")
-    print(f"Observed mean: {observed_mean:.3f}s")
-    print(f"Expected std:  {expected_std:.3f}s")
-    print(f"Observed std:  {observed_std:.3f}s")
+    print(f"1. TIMING PATTERN:")
+    print(f"   • Average gap between requests: {observed_mean:.2f} seconds")
+    print(f"   • But gaps are highly variable (CV = {variability:.2f})")
+    print(f"   • This creates bursty traffic patterns")
 
-    # Kolmogorov-Smirnov test (this is appropriate for continuous data)
+    print(f"\n2. LOAD VARIABILITY:")
+    print(f"   • Expected requests per second: {lambda_rate}")
+    print(f"   • But actual load varies significantly in short windows")
+    print(f"   • Some seconds have many requests, others have none")
+
+    print(f"\n3. MODELING BENEFITS:")
+    print(f"   • Memoryless property simplifies analysis")
+    print(f"   • Can predict system behavior statistically")
+    print(f"   • Enables mathematical performance models (M/M/1)")
+
+    # Statistical validation (simplified)
     ks_stat, ks_pvalue = stats.kstest(inter_arrivals, lambda x: stats.expon.cdf(x, scale=1/lambda_rate))
-    print(f"\nGoodness of fit (Kolmogorov-Smirnov test):")
-    print(f"KS statistic: {ks_stat:.4f}")
-    print(f"p-value: {ks_pvalue:.4f}")
-    print(f"Result: {'✓ PASS' if ks_pvalue > 0.05 else '✗ FAIL'} (α=0.05)")
+    print(f"\n4. VALIDATION:")
+    print(f"   • Model fits real data: {'✓ YES' if ks_pvalue > 0.05 else '✗ NO'} (p={ks_pvalue:.3f})")
 
-    # Test memoryless property
     if len(short_previous) > 10 and len(long_previous) > 10:
         ks_memoryless, p_memoryless = stats.ks_2samp(short_previous, long_previous)
-        print(f"\nMemoryless property test:")
-        print(f"KS statistic: {ks_memoryless:.4f}")
-        print(f"p-value: {p_memoryless:.4f}")
-        print(f"Result: {'✓ PASS' if p_memoryless > 0.05 else '✗ FAIL'} (should be > 0.05)")
-        print("Conclusion: Next arrival time is independent of previous gap")
+        print(f"   • Memoryless property confirmed: {'✓ YES' if p_memoryless > 0.05 else '✗ NO'}")
+
+    print(f"\n→ Conclusion: Exponential inter-arrivals are realistic for web traffic modeling")
+
+
+def plot_mm1_utilization_effects(lambda_rate=5, mu_rate=8):
+    """
+    Visualize the dramatic effect of utilization on M/M/1 system performance
+    Focus on the key SPE message: systems become very sensitive near capacity
+
+    Args:
+        lambda_rate: Arrival rate (requests/sec)
+        mu_rate: Service rate (requests/sec)
+    """
+    # Calculate current system utilization
+    rho = lambda_rate / mu_rate
+    E_T = 1 / (mu_rate - lambda_rate)  # Expected response time
+    E_N = rho / (1 - rho)              # Expected number in system
+
+    # Generate utilization range (careful near ρ = 1)
+    lambda_values = np.linspace(0.1, mu_rate * 0.99, 200)  # Stop before instability
+    rho_values = lambda_values / mu_rate
+    E_T_values = 1 / (mu_rate - lambda_values)
+    E_N_values = rho_values / (1 - rho_values)
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+
+    # Top left: Response time vs utilization (key plot!)
+    axes[0,0].plot(rho_values, E_T_values, 'b-', linewidth=3, label='Response time')
+    axes[0,0].axvline(rho, color='red', linestyle='--', linewidth=2,
+                     label=f'Our system (ρ={rho:.2f})')
+    axes[0,0].axhline(E_T, color='red', linestyle='--', alpha=0.7, linewidth=2)
+
+    # Highlight danger zone
+    danger_zone = rho_values > 0.8
+    axes[0,0].fill_between(rho_values[danger_zone], 0, E_T_values[danger_zone],
+                          alpha=0.2, color='red', label='Danger zone')
+
+    # Add warning annotation
+    axes[0,0].annotate('Response time explodes!\n(System becomes unusable)',
+                      xy=(0.9, 10), xytext=(0.6, 8),
+                      arrowprops=dict(arrowstyle='->', color='darkred', lw=2),
+                      fontsize=12, ha='center', fontweight='bold',
+                      bbox=dict(boxstyle="round,pad=0.4", facecolor="yellow", alpha=0.8))
+
+    axes[0,0].set_xlabel('Utilization (ρ = λ/μ)', fontsize=12)
+    axes[0,0].set_ylabel('Expected Response Time (seconds)', fontsize=12)
+    axes[0,0].set_title('Critical SPE Insight: Response Time vs Load', fontsize=14, fontweight='bold')
+    axes[0,0].legend(fontsize=11)
+    axes[0,0].grid(True, alpha=0.3)
+    axes[0,0].set_ylim(0, 15)
+
+    # Top right: Queue length vs utilization
+    axes[0,1].plot(rho_values, E_N_values, 'g-', linewidth=3, label='Queue length')
+    axes[0,1].axvline(rho, color='red', linestyle='--', linewidth=2,
+                     label=f'Our system (ρ={rho:.2f})')
+    axes[0,1].axhline(E_N, color='red', linestyle='--', alpha=0.7, linewidth=2)
+
+    # Highlight safe vs danger zones
+    safe_zone = rho_values <= 0.8
+    axes[0,1].fill_between(rho_values[safe_zone], 0, E_N_values[safe_zone],
+                          alpha=0.2, color='green', label='Safe zone')
+    danger_zone = rho_values > 0.8
+    axes[0,1].fill_between(rho_values[danger_zone], 0, E_N_values[danger_zone],
+                          alpha=0.2, color='red', label='Danger zone')
+
+    axes[0,1].set_xlabel('Utilization (ρ = λ/μ)', fontsize=12)
+    axes[0,1].set_ylabel('Expected Number in System', fontsize=12)
+    axes[0,1].set_title('Queue Builds Up Rapidly Near Capacity', fontsize=14, fontweight='bold')
+    axes[0,1].legend(fontsize=11)
+    axes[0,1].grid(True, alpha=0.3)
+    axes[0,1].set_ylim(0, 25)
+
+    # Bottom left: Arrival rate vs System throughput (extended beyond saturation)
+    # Extend range beyond saturation to show the concept
+    extended_lambda = np.linspace(0.1, mu_rate + 4, 200)
+
+    arrival_rate = extended_lambda  # Arrivals can grow indefinitely
+    actual_throughput = np.minimum(extended_lambda, mu_rate)  # System limited by μ
+
+    # Plot arrival rate (continuous line)
+    axes[1,0].plot(extended_lambda, arrival_rate, 'b-', linewidth=3, label='Arrival rate')
+
+    # Plot actual system throughput (continuous, plateaus at μ)
+    axes[1,0].plot(extended_lambda, actual_throughput, 'red', linewidth=3, label='System throughput')
+
+    # Plot theoretical throughput (dashed line showing what we'd need)
+    axes[1,0].plot(extended_lambda, extended_lambda, 'red', linestyle='--', linewidth=2,
+                   alpha=0.6, label='Theoretical throughput (needed)')
+
+    # Highlight saturation point
+    axes[1,0].axvline(mu_rate, color='black', linestyle='--', linewidth=2,
+                     label=f'Saturation point (μ={mu_rate})')
+
+    # Annotate the gap
+    axes[1,0].annotate('Gap creates\nqueues and delays',
+                      xy=(mu_rate + 2, mu_rate + 1), xytext=(mu_rate + 1, mu_rate + 3),
+                      arrowprops=dict(arrowstyle='->', color='darkred'),
+                      fontsize=11, ha='center',
+                      bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow"))
+
+    axes[1,0].set_xlabel('Arrival Rate λ (requests/sec)', fontsize=12)
+    axes[1,0].set_ylabel('Rate (requests/sec)', fontsize=12)
+    axes[1,0].set_title('System Saturation: Gap Between Arrivals and Throughput', fontsize=14, fontweight='bold')
+    axes[1,0].legend(fontsize=10)
+    axes[1,0].grid(True, alpha=0.3)
+    axes[1,0].set_xlim(0, mu_rate + 4)
+    axes[1,0].set_ylim(0, mu_rate + 4)
+
+    # Bottom right: Capacity planning table
+    axes[1,1].axis('off')
+
+    # Create example scenarios
+    scenarios = [
+        ('Light load', 2, mu_rate, 'green'),
+        ('Moderate load', 4, mu_rate, 'orange'),
+        ('Heavy load', 6, mu_rate, 'red'),
+        ('Critical load', 7.5, mu_rate, 'darkred')
+    ]
+
+    table_data = []
+    colors = []
+    for scenario, lam, mu, color in scenarios:
+        rho_s = lam / mu
+        E_T_s = 1 / (mu - lam) if lam < mu else float('inf')
+        E_N_s = rho_s / (1 - rho_s) if rho_s < 1 else float('inf')
+        table_data.append([scenario, f'{lam}', f'{rho_s:.2f}', f'{E_T_s:.2f}s', f'{E_N_s:.1f}'])
+        colors.append(color)
+
+    # Create table
+    table = axes[1,1].table(cellText=table_data,
+                           colLabels=['Scenario', 'λ (req/s)', 'ρ', 'Response Time', 'Queue Length'],
+                           cellLoc='center',
+                           loc='center',
+                           colWidths=[0.25, 0.15, 0.15, 0.2, 0.2])
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(11)
+    table.scale(1.2, 1.8)
+
+    # Color code the rows
+    for i, color in enumerate(colors):
+        for j in range(5):
+            table[(i+1, j)].set_facecolor(color)
+            table[(i+1, j)].set_alpha(0.3)
+
+    axes[1,1].set_title('Capacity Planning: Performance vs Load', fontsize=14, fontweight='bold')
+
+    plt.suptitle('M/M/1 Queue: Why Utilization Management is Critical for SPE',
+                 fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    plt.show()
+
+    # Key insights output
+    print("Critical Performance Engineering Insights:")
+    print("=" * 50)
+
+    print(f"CURRENT SYSTEM STATUS:")
+    print(f"   • Arrival rate (λ): {lambda_rate} req/s")
+    print(f"   • Service rate (μ): {mu_rate} req/s")
+    print(f"   • Utilization (ρ): {rho:.1%}")
+    print(f"   • Expected response time: {E_T:.2f} seconds")
+    print(f"   • Expected queue length: {E_N:.1f} requests")
+
+    print(f"\nCAPACITY PLANNING ASSESSMENT:")
+    if rho < 0.7:
+        print(f"   Status: SAFE - System has good headroom")
+    elif rho < 0.8:
+        print(f"   Status: CAUTION - Monitor closely, plan capacity")
+    elif rho < 0.9:
+        print(f"   Status: WARNING - System under stress, add capacity soon")
+    else:
+        print(f"   Status: CRITICAL - System near collapse, immediate action needed")
+
+    print(f"\nKEY THEORETICAL INSIGHTS:")
+    print(f"   • Small load increases near capacity cause exponential performance degradation")
+    print(f"   • Optimal utilization range: 70-80% for stable performance")
+    print(f"   • Response time grows non-linearly with utilization")
+    print(f"   • System throughput plateaus at service capacity (μ)")
+
+    if rho > 0.8:
+        recommended_capacity = lambda_rate / 0.7  # Target 70% utilization
+        print(f"\nRECOMMENDATION:")
+        print(f"   • Increase service capacity to {recommended_capacity:.1f} req/s")
+        print(f"   • This would reduce utilization to 70% for stable performance")

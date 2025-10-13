@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Envoy proxy metrics (application-level metrics)
+  - job_name: 'envoy-proxy'
+    static_configs:
+      - targets: ['envoy-proxy:9901']
+    metrics_path: '/stats/prometheus'
+    scrape_interval: 5s
+    scrape_timeout: 5s
+
+  # cAdvisor for container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 5s
+
+  # Note: M/M/1 Server doesn't expose /metrics endpoint
+  # Application metrics are captured by Envoy proxy instead

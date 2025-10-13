@@ -4,3 +4,6 @@ scipy
 pandas
 jupyter
 ipykernel
+seaborn
+requests
+aiohttp

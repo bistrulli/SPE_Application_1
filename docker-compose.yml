@@ -3,11 +3,11 @@ version: '3.8'
 services:
   # M/M/1 Server with Istio sidecar
   mm1-server:
-    image: bistrulli/generic-microservice-tester:0.6
+    image: bistrulli/generic-microservice-tester:0.7-exp
     container_name: mm1-server
     environment:
       SERVICE_NAME: "MM1-Server"
-      SERVICE_TIME_SECONDS: "0.0001"  # Configurable service time
+      SERVICE_TIME_SECONDS: "0.1"  # Configurable service time
       OUTBOUND_CALLS: ""
       GUNICORN_WORKERS: "1" # 1 pocess worker
       GUNICORN_THREADS: "1" # 1 thread per worker

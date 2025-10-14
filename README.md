@@ -1,56 +1,50 @@
-# SPE Application: Poisson Process Lecture Materials
+# SPE Application: Poisson Process & M/M/1 Validation Platform
 
-This repository contains lecture materials and code for a hands-on introduction to the Poisson process within Software Performance Engineering (SPE). The goal is to bridge theory and practice by generating Poisson workloads, validating their statistical properties, and connecting them to M/M/1 queueing theory predictions.
+Educational platform for hands-on Systems Performance Engineering (SPE) combining theoretical foundations with practical M/M/1 server validation. Students learn Poisson processes through interactive experiments and real system measurements.
 
-## Repository Contents
-- `poisson_spe_lecture.ipynb`: Interactive Jupyter notebook used during the lecture. It
-  - introduces Poisson process fundamentals via transition probabilities
-  - demonstrates simulation and visualization of arrivals and inter-arrival times
-  - validates exponential behavior and fits using statistical tests
-  - explores the link to M/M/1 formulas (utilization, response time, queue length)
-- `poisson_plots.py`: Reusable plotting and analysis utilities for the notebook (distribution plots, simulation comparisons, inter-arrival analyses, etc.).
-- `outline_poisson_lecture.md`: Lecture outline, learning objectives, and program.
-- `requirements.txt`: Minimal Python dependencies to run the notebook and utilities.
+## Architecture
+- **Docker Infrastructure**: M/M/1 server with Envoy proxy, Prometheus monitoring, cAdvisor metrics
+- **Interactive Modules**: Three progressive Jupyter notebooks
+- **Workload Generators**: Synchronous and asynchronous request generators
+- **Metrics Collection**: Automated Prometheus-based performance monitoring
 
-## Objectives
-- Implement a Poisson workload generator.
-- Validate statistical properties (Poisson counts, exponential inter-arrivals).
-- Compare simulation results with M/M/1 theoretical predictions.
+## Modules
+1. **Module 1** (`poisson_spe_lecture.ipynb`): Poisson theory, statistical validation, exponential distributions
+2. **Module 2** (`module2_workload_patterns.ipynb`): Open vs closed workload patterns, synchronous vs asynchronous generators
+3. **Module 3** (`module3_mm1_validation.ipynb`): M/M/1 theoretical validation using calibration-based service rate estimation
+
+## Core Components
+- `workload_generator.py`: Synchronous and asynchronous workload generators
+- `metrics_collector.py`: Prometheus integration with automatic container discovery
+- `poisson_plots.py`: Statistical validation and visualization utilities
+- `workload_analysis_plots.py`: Workload pattern analysis and comparison plots
+- `docker-compose.yml`: Complete monitoring stack (Envoy, Prometheus, cAdvisor)
 
 ## Quick Start
-1. Clone this repository:
-   ```bash
-   git clone <your-repo-url>
-   cd SPE_Application_1
-   ```
-2. Create and activate a virtual environment (recommended):
+1. **Setup environment**:
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate
-   python -m pip install --upgrade pip
-   ```
-3. Install dependencies:
-   ```bash
    pip install -r requirements.txt
    ```
-4. (Optional) Register a dedicated Jupyter kernel:
+
+2. **Start M/M/1 system**:
    ```bash
-   python -m ipykernel install --user --name spe-lecture --display-name "Python (spe-lecture)"
+   docker-compose up -d
    ```
-5. Launch Jupyter and open the notebook:
+
+3. **Run modules**:
    ```bash
    jupyter notebook
+   # Open poisson_spe_lecture.ipynb and run sequentially
    ```
-   In Jupyter/VS Code, select the kernel "Python (spe-lecture)" if you created it.
 
-## Usage
-- Run cells in `poisson_spe_lecture.ipynb` sequentially.
-- The notebook imports utilities from `poisson_plots.py` for plotting and validation.
-- Adjust parameters like `lambda_rate`, time window `tau`, and experiment sizes to explore different regimes and compare with M/M/1 predictions.
+## System Requirements
+- Docker and docker-compose
+- Python 3.8+ with virtual environment
+- Ports: 8084 (Envoy), 9090 (Prometheus), 8081 (cAdvisor), 9901 (Envoy admin)
 
-## Notes
-- Avoid installing packages directly inside the notebook with `!pip install` for reproducibility; prefer the virtual environment + `requirements.txt` approach.
-- If you prefer a modern workflow with lock files, consider using Poetry or uv and a `pyproject.toml`.
-
-## License
-See `LICENSE` for license information.
+## Usage Notes
+- Modules build progressively: theory → workload patterns → system validation
+- Real M/M/1 server allows comparison between theoretical predictions and measured performance
+- Automatic container discovery handles service restarts transparently

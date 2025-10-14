@@ -46,6 +46,14 @@ class WorkloadResults:
     def total_requests(self) -> int:
         return len(self.requests)
 
+    @property
+    def average_response_time(self) -> float:
+        """Calculate average response time from successful requests."""
+        successful_requests = [r for r in self.requests if r.success]
+        if not successful_requests:
+            return 0.0
+        return sum(r.response_time for r in successful_requests) / len(successful_requests)
+
 
 class SimpleWorkloadGenerator:
     """

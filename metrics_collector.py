@@ -10,6 +10,7 @@ import time
 import requests
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from typing import Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -53,16 +54,16 @@ class PrometheusCollector:
     workload generation experiments.
     """
 
-    # Pre-defined queries for common M/M/1 metrics
+    # Simplified queries for core M/M/1 metrics
     QUERIES = {
-        'throughput': 'rate(envoy_cluster_upstream_rq_total{cluster_name="mm1_service"}[1m])',
-        'response_time_avg': 'histogram_quantile(0.5, rate(envoy_cluster_upstream_rq_time_bucket{cluster_name="mm1_service"}[1m]))',
-        'response_time_95p': 'histogram_quantile(0.95, rate(envoy_cluster_upstream_rq_time_bucket{cluster_name="mm1_service"}[1m]))',
-        'response_time_99p': 'histogram_quantile(0.99, rate(envoy_cluster_upstream_rq_time_bucket{cluster_name="mm1_service"}[1m]))',
-        'cpu_usage': 'rate(container_cpu_usage_seconds_total{name="mm1-server"}[1m]) * 100',
-        'memory_usage': 'container_memory_usage_bytes{name="mm1-server"}',
-        'request_total': 'envoy_cluster_upstream_rq_total{cluster_name="mm1_service"}',
-        'success_rate': 'rate(envoy_cluster_upstream_rq_total{cluster_name="mm1_service",envoy_response_code!~"5.."}[1m]) / rate(envoy_cluster_upstream_rq_total{cluster_name="mm1_service"}[1m]) * 100'
+        # Throughput: successful requests per second
+        'throughput': 'rate(envoy_cluster_upstream_rq_completed{cluster_name="mm1_service"}[1m])',
+
+        # Response time: total response time including queueing (downstream measurement)
+        'response_time_avg': 'rate(envoy_http_downstream_rq_time_sum{envoy_http_conn_manager_prefix="ingress_http"}[1m]) / rate(envoy_http_downstream_rq_time_count{envoy_http_conn_manager_prefix="ingress_http"}[1m])',
+
+        # CPU usage: will be dynamically replaced with actual container ID
+        'cpu_usage': 'rate(container_cpu_usage_seconds_total{id="/system.slice"}[1m])',  # Placeholder
     }
 
     def __init__(self, prometheus_url: str = "http://localhost:9090"):
@@ -74,6 +75,7 @@ class PrometheusCollector:
         """
         self.base_url = prometheus_url.rstrip('/')
         self.session = requests.Session()
+        self._mm1_container_id = None
 
     def query(self, query: str, time_point: Optional[float] = None) -> Dict:
         """
@@ -151,10 +153,36 @@ class PrometheusCollector:
                 raise ValueError(f"Unknown metric: {metric}")
 
             try:
-                response = self.query(self.QUERIES[metric])
+                # Handle CPU usage specially to find container dynamically
+                if metric == 'cpu_usage':
+                    container_id = self._find_mm1_container_id()
+                    if container_id:
+                        query = f'rate(container_cpu_usage_seconds_total{{id="{container_id}"}}[1m])'
+                    else:
+                        query = self.QUERIES[metric]  # Fallback to default
+                else:
+                    query = self.QUERIES[metric]
+
+                response = self.query(query)
+
+                # If CPU query fails and we had a cached container ID, invalidate cache and retry
+                if metric == 'cpu_usage' and (response['status'] != 'success' or not response['data']['result']):
+                    if self._mm1_container_id:
+                        print(f"CPU query failed with cached container ID, invalidating cache and retrying...")
+                        self._mm1_container_id = None  # Invalidate cache
+                        container_id = self._find_mm1_container_id()  # Re-discover
+                        if container_id:
+                            query = f'rate(container_cpu_usage_seconds_total{{id="{container_id}"}}[1m])'
+                            response = self.query(query)  # Retry query
+
                 if response['status'] == 'success' and response['data']['result']:
                     # Take the first result if multiple series returned
                     value = float(response['data']['result'][0]['value'][1])
+
+                    # Convert response times from milliseconds to seconds
+                    if metric == 'response_time_avg':
+                        value = value / 1000.0  # Convert ms to seconds
+
                     results[metric] = value
                 else:
                     results[metric] = None
@@ -236,8 +264,18 @@ class PrometheusCollector:
                 continue
 
             try:
+                # Handle CPU usage specially to find container dynamically
+                if metric == 'cpu_usage':
+                    container_id = self._find_mm1_container_id()
+                    if container_id:
+                        query = f'rate(container_cpu_usage_seconds_total{{id="{container_id}"}}[1m])'
+                    else:
+                        query = self.QUERIES[metric]  # Fallback to default
+                else:
+                    query = self.QUERIES[metric]
+
                 response = self.query_range(
-                    self.QUERIES[metric],
+                    query,
                     start_time,
                     end_time,
                     step
@@ -250,9 +288,15 @@ class PrometheusCollector:
                     points = []
 
                     for timestamp, value in series_data['values']:
+                        converted_value = float(value)
+
+                        # Convert response times from milliseconds to seconds
+                        if metric == 'response_time_avg':
+                            converted_value = converted_value / 1000.0  # Convert ms to seconds
+
                         points.append(MetricPoint(
                             timestamp=float(timestamp),
-                            value=float(value)
+                            value=converted_value
                         ))
 
                     results[metric] = MetricSeries(
@@ -265,6 +309,30 @@ class PrometheusCollector:
                 print(f"Warning: Failed to retrieve {metric}: {e}")
 
         return results
+
+    def _find_mm1_container_id(self) -> Optional[str]:
+        """
+        Get the container ID for mm1-server directly using Docker CLI.
+        """
+        if self._mm1_container_id:
+            return self._mm1_container_id
+
+        try:
+            import subprocess
+            # Get container ID directly by name - much simpler and reliable!
+            container_id = subprocess.check_output(
+                ['docker', 'inspect', 'mm1-server', '--format', '/docker/{{.Id}}'],
+                text=True, timeout=5
+            ).strip()
+
+            self._mm1_container_id = container_id
+            return self._mm1_container_id
+
+        except subprocess.SubprocessError:
+            # Container not found or docker command failed
+            return None
+        except Exception:
+            return None
 
     def health_check(self) -> bool:
         """
@@ -365,6 +433,182 @@ def monitor_during_workload(
         return collector.collect_metrics_during_experiment(workload_duration)
     finally:
         collector.close()
+
+
+# Plotting functions for M/M/1 validation analysis
+def plot_mm1_validation_analysis(
+    theoretical_predictions: Dict,
+    measured_metrics: Dict,
+    estimated_mu: float
+) -> None:
+    """
+    Create comprehensive M/M/1 validation plots.
+
+    Args:
+        theoretical_predictions: Dictionary with theoretical metrics for each lambda
+        measured_metrics: Dictionary with measured metrics for each lambda
+        estimated_mu: Estimated service rate
+    """
+    # Prepare data arrays
+    lambda_values = sorted(measured_metrics.keys())
+    theoretical_data = {'utilization': [], 'throughput': [], 'response_time': []}
+    measured_data = {'utilization': [], 'throughput': [], 'response_time': []}
+    utilization_levels = []
+
+    for lambda_rate in lambda_values:
+        theory = theoretical_predictions[lambda_rate]
+        measured = measured_metrics[lambda_rate]
+
+        theoretical_data['utilization'].append(theory['utilization'])
+        theoretical_data['throughput'].append(theory['throughput'])
+        theoretical_data['response_time'].append(theory['response_time'])
+
+        measured_data['utilization'].append(measured['utilization'])
+        measured_data['throughput'].append(measured['throughput'])
+        measured_data['response_time'].append(measured['response_time'])
+
+        utilization_levels.append(theory['utilization'])
+
+    # Create comprehensive validation plots
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle('M/M/1 Model Validation: Theory vs Measurements\\n'
+                f'Estimated Service Rate μ = {estimated_mu:.2f} req/s',
+                fontsize=14, fontweight='bold')
+
+    # 1. Throughput validation
+    axes[0,0].plot(utilization_levels, theoretical_data['throughput'], 'b-', linewidth=2,
+                   marker='o', markersize=8, label='Theoretical')
+    axes[0,0].plot(utilization_levels, measured_data['throughput'], 'r--', linewidth=2,
+                   marker='s', markersize=8, label='Measured')
+    axes[0,0].set_xlabel('Utilization (ρ)')
+    axes[0,0].set_ylabel('Throughput (req/s)')
+    axes[0,0].set_title('Throughput Validation')
+    axes[0,0].legend()
+    axes[0,0].grid(True, alpha=0.3)
+
+    # 2. Response time validation
+    axes[0,1].plot(utilization_levels, theoretical_data['response_time'], 'b-', linewidth=2,
+                   marker='o', markersize=8, label='Theoretical')
+    axes[0,1].plot(utilization_levels, measured_data['response_time'], 'r--', linewidth=2,
+                   marker='s', markersize=8, label='Measured')
+    axes[0,1].set_xlabel('Utilization (ρ)')
+    axes[0,1].set_ylabel('Response Time (s)')
+    axes[0,1].set_title('Response Time Validation')
+    axes[0,1].legend()
+    axes[0,1].grid(True, alpha=0.3)
+
+    # 3. Correlation analysis
+    max_val = max(max(theoretical_data['utilization']), max(measured_data['utilization']))
+    axes[1,0].scatter(theoretical_data['utilization'], measured_data['utilization'],
+                      color='green', s=100, alpha=0.7, edgecolors='black')
+    axes[1,0].plot([0, max_val], [0, max_val], 'k--', alpha=0.5, label='Perfect correlation')
+    axes[1,0].set_xlabel('Theoretical Utilization')
+    axes[1,0].set_ylabel('Measured Utilization')
+    axes[1,0].set_title('Utilization Correlation')
+    axes[1,0].legend()
+    axes[1,0].grid(True, alpha=0.3)
+
+    # 4. Relative error analysis
+    throughput_errors = [(m-t)/t*100 for t, m in zip(theoretical_data['throughput'], measured_data['throughput'])]
+    response_time_errors = [(m-t)/t*100 for t, m in zip(theoretical_data['response_time'], measured_data['response_time'])]
+
+    x_pos = np.arange(len(utilization_levels))
+    width = 0.35
+
+    bars1 = axes[1,1].bar(x_pos - width/2, throughput_errors, width,
+                          label='Throughput Error (%)', alpha=0.7, color='skyblue')
+    bars2 = axes[1,1].bar(x_pos + width/2, response_time_errors, width,
+                          label='Response Time Error (%)', alpha=0.7, color='lightcoral')
+
+    axes[1,1].set_xlabel('Test Condition')
+    axes[1,1].set_ylabel('Relative Error (%)')
+    axes[1,1].set_title('Prediction Error Analysis')
+    axes[1,1].set_xticks(x_pos)
+    axes[1,1].set_xticklabels([f'{u:.0%}' for u in utilization_levels])
+    axes[1,1].legend()
+    axes[1,1].grid(True, alpha=0.3)
+    axes[1,1].axhline(y=0, color='black', linestyle='-', alpha=0.3)
+
+    # Add value labels on error bars
+    for bar, error in zip(bars1, throughput_errors):
+        height = bar.get_height()
+        axes[1,1].text(bar.get_x() + bar.get_width()/2., height + (1 if height >= 0 else -3),
+                       f'{error:+.1f}%', ha='center', va='bottom' if height >= 0 else 'top', fontsize=9)
+
+    for bar, error in zip(bars2, response_time_errors):
+        height = bar.get_height()
+        axes[1,1].text(bar.get_x() + bar.get_width()/2., height + (1 if height >= 0 else -3),
+                       f'{error:+.1f}%', ha='center', va='bottom' if height >= 0 else 'top', fontsize=9)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def calculate_validation_statistics(
+    theoretical_predictions: Dict,
+    measured_metrics: Dict
+) -> Dict:
+    """
+    Calculate statistical validation metrics.
+
+    Args:
+        theoretical_predictions: Dictionary with theoretical metrics
+        measured_metrics: Dictionary with measured metrics
+
+    Returns:
+        Dictionary with validation statistics
+    """
+    # Prepare data arrays
+    lambda_values = sorted(measured_metrics.keys())
+    theoretical_data = {'utilization': [], 'throughput': [], 'response_time': []}
+    measured_data = {'utilization': [], 'throughput': [], 'response_time': []}
+
+    for lambda_rate in lambda_values:
+        theory = theoretical_predictions[lambda_rate]
+        measured = measured_metrics[lambda_rate]
+
+        theoretical_data['utilization'].append(theory['utilization'])
+        theoretical_data['throughput'].append(theory['throughput'])
+        theoretical_data['response_time'].append(theory['response_time'])
+
+        measured_data['utilization'].append(measured['utilization'])
+        measured_data['throughput'].append(measured['throughput'])
+        measured_data['response_time'].append(measured['response_time'])
+
+    # Calculate correlation coefficients and errors
+    stats = {}
+    if len(theoretical_data['throughput']) > 1:
+        stats['throughput_corr'] = np.corrcoef(theoretical_data['throughput'], measured_data['throughput'])[0,1]
+        stats['response_time_corr'] = np.corrcoef(theoretical_data['response_time'], measured_data['response_time'])[0,1]
+        stats['utilization_corr'] = np.corrcoef(theoretical_data['utilization'], measured_data['utilization'])[0,1]
+
+        # Calculate relative errors
+        throughput_errors = [abs((m-t)/t*100) for t, m in zip(theoretical_data['throughput'], measured_data['throughput'])]
+        response_time_errors = [abs((m-t)/t*100) for t, m in zip(theoretical_data['response_time'], measured_data['response_time'])]
+
+        stats['throughput_mae'] = np.mean(throughput_errors)
+        stats['response_time_mae'] = np.mean(response_time_errors)
+
+        # Overall assessment
+        min_correlation = min(stats['throughput_corr'], stats['response_time_corr'], stats['utilization_corr'])
+        max_error = max(stats['throughput_mae'], stats['response_time_mae'])
+
+        if min_correlation > 0.95 and max_error < 10:
+            assessment = "Excellent"
+        elif min_correlation > 0.90 and max_error < 20:
+            assessment = "Good"
+        elif min_correlation > 0.75 and max_error < 30:
+            assessment = "Acceptable"
+        else:
+            assessment = "Poor"
+
+        stats['assessment'] = assessment
+        stats['min_correlation'] = min_correlation
+        stats['max_error'] = max_error
+    else:
+        stats['error'] = "Insufficient data points for statistical analysis"
+
+    return stats
 
 
 if __name__ == "__main__":

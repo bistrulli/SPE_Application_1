@@ -1,65 +1,68 @@
-# Poisson Process in Software Performance Engineering
-## Hands-on Lecture
+# Poisson Process & M/M/1 Validation
+## First Hands-on SPE Lecture
 
 ---
 
 ### **Learning Objectives**
-- Implement a **Poisson workload generator**
-- Validate **statistical properties** of the process
-- Verify **match with M/M/1 formulas** through practical experiments
+- Master **Poisson process** theory through statistical validation
+- Understand **open vs closed workload** patterns
+- Validate **M/M/1 theoretical predictions** against real system measurements
 
 ---
 
-### **Lecture Program**
+### **Module 1: Poisson Theory & Statistical Validation**
+1. **Recall on Formal Definition**
+   - Transition probability
+   - Connection to exponential inter-arrivals
 
-#### **Module 1: Review and Workload Generator**
-1. **Essential Review**
-   - Parameter λ and practical meaning
-   - Exponential inter-arrival times
-   - Connection with M/M/1 systems
-
-2. **Environment Setup**
-   - Required Python libraries
-   - Notebook structure
-
-3. **Poisson Workload Generator**
-   - Generator implementation
-   - Inter-arrival times visualization
-   - Exponential distribution verification
-   - Actual vs theoretical rate validation
+2. **Statistical Validation**
+   - Poisson count distribution verification
+   - Exponential inter-arrival time validation
+   - Kolmogorov-Smirnov testing
+   - Coefficient of variation analysis
 
 ---
 
-### **BREAK**
+### **BREAK** (15 min)
 
 ---
 
-#### **Module 2: M/M/1 System Application**
-4. **M/M/1 System as Target**
-   - M/M/1 "black box" system provided
-   - Request submission with controlled λ
-   - Metrics collection: throughput, response time, queue length
+### **Module 2: Workload Pattern Analysis**
+3. **Open vs Closed Workloads**
+   - Synchronous generator (closed workload behavior)
+   - Asynchronous generator (true open workload)
+   - Inter-arrival time measurement methodology
 
-5. **Theoretical-Practical Validation**
-   - Comparison λ_generated vs λ_observed
-   - Match with M/M/1 formulas: ρ = λ/μ, E[T], E[N]
-   - Experiments with different λ values
-   - Interpretation of deviations and practical limits
+4. **Practical Experiments**
+   - Low service time: exponential patterns emerge
+   - High service time: synchronous shows non-exponential behavior
+   - Asynchronous maintains exponential regardless of service time
+
+---
+
+### **Module 3: M/M/1 System Validation**
+5. **Real System Integration**
+   - Docker-based M/M/1 server with monitoring stack
+   - Prometheus metrics collection (Envoy + cAdvisor)
+   - Automatic container discovery
+
+6. **Calibration-Based Validation**
+   - Service rate estimation
+   - Systematic validation across utilization levels 
+   - Theoretical vs measured comparison
 
 ---
 
-### **Tools Used**
-- **Python**: numpy, matplotlib, scipy
-- **Jupyter Notebook**: interactive environment
-- **M/M/1 System**: implementation provided by instructor
-
----
+### **Technical Stack**
+- **Infrastructure**: Docker Compose, Envoy proxy, Prometheus, cAdvisor
+- **Analysis**: Python (numpy, scipy, pandas, matplotlib)
+- **Environment**: Jupyter notebooks with modular utilities
 
 ### **Prerequisites**
-- Theoretical knowledge of Poisson process
-- Familiarity with M/M/1 system and related formulas
-- Basic Python programming skills
+- Basic Poisson process knowledge
+- M/M/1 queueing theory fundamentals
+- Python programming and Docker basics
 
 ---
 
-*Software Performance Engineering - Software: Science and Technology - A.Y. 2025/2026*
+*Software Performance Engineering - A.Y. 2025/2026*

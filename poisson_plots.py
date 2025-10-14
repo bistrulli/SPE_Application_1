@@ -234,8 +234,7 @@ def two_sample_ks_test(simulated_counts, lambda_rate, tau, n_theoretical_samples
     print("-" * 40)
     print(f"Simulated samples:   {len(simulated_counts):,}")
     print(f"Theoretical samples: {n_theoretical_samples:,}")
-    print(f"KS statistic: {ks_stat:.4f}")
-    print(f"p-value: {p_value:.4f}")
+    print(f"KS p-value: {p_value:.4f}")
     print(f"Result: {'✓ PASS' if p_value > 0.05 else '✗ FAIL'} (α = 0.05)")
 
     if p_value > 0.05:

@@ -19,6 +19,8 @@ Educational platform for hands-on Systems Performance Engineering (SPE) combinin
 - `poisson_plots.py`: Statistical validation and visualization utilities
 - `workload_analysis_plots.py`: Workload pattern analysis and comparison plots
 - `docker-compose.yml`: Complete monitoring stack (Envoy, Prometheus, cAdvisor)
+ - `docker-stack.yml`: Swarm stack file (same services; `mm1-server` scalable)
+- `envoy-config-swarm.yaml`: Envoy configuration for Docker Swarm (uses `spe_mm1-server` service name)
 
 ## Quick Start
 1. **Setup environment**:
@@ -48,3 +50,58 @@ Educational platform for hands-on Systems Performance Engineering (SPE) combinin
 - Modules build progressively: theory → workload patterns → system validation
 - Real M/M/1 server allows comparison between theoretical predictions and measured performance
 - Automatic container discovery handles service restarts transparently
+
+## Docker Swarm Stack (Scaling Experiments)
+
+This project also supports Docker Swarm to easily scale the `mm1-server` replicas without changing CPU core limits.
+
+### Prerequisites
+- Docker Engine with Swarm mode enabled
+- Initialize Swarm (first time only):
+  ```bash
+  docker swarm init
+  ```
+
+### Deploy the stack
+```bash
+docker stack deploy -c docker-stack.yml spe
+```
+
+### Inspect services
+```bash
+docker service ls
+docker service ps spe_mm1-server
+```
+
+### Scale the M/M/1 server
+Change replica count at runtime (e.g., 3 replicas):
+```bash
+docker service scale spe_mm1-server=3
+```
+
+You can also set the initial replica count by editing `deploy.replicas` under `mm1-server` in `docker-stack.yml`.
+
+### Logs and troubleshooting
+```bash
+# Envoy access/admin
+docker service logs -f spe_envoy-proxy
+
+# M/M/1 server instances (all tasks)
+docker service logs -f spe_mm1-server
+
+# Prometheus
+docker service logs -f spe_prometheus
+
+# cAdvisor (node-level permissions may vary)
+docker service logs -f spe_cadvisor
+```
+
+### Remove the stack
+```bash
+docker stack rm spe
+```
+
+### Notes
+- In Swarm, `deploy` keys are honored (unlike plain `docker compose up`).
+- `depends_on` does not enforce start order in Swarm; components retry automatically.
+- cAdvisor may require privileges that differ per host; running it as a standalone container per node can be more robust if issues arise.

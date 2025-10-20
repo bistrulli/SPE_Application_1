@@ -1,17 +1,18 @@
 version: '3.8'
 
 services:
-  # M/M/1 Server with Istio sidecar
+  # M/M/1 Server
   mm1-server:
     image: bistrulli/generic-microservice-tester:0.7-exp
     container_name: mm1-server
     environment:
       SERVICE_NAME: "MM1-Server"
-      SERVICE_TIME_SECONDS: "6"  # Configurable service time
+      SERVICE_TIME_SECONDS: "0.1"  # Configurable service time
       OUTBOUND_CALLS: ""
       GUNICORN_WORKERS: "1" # 1 pocess worker
       GUNICORN_THREADS: "1" # 1 thread per worker
     deploy:
+      replicas: 1  # scale with `docker service scale`
       resources:
         limits:
           cpus: '1.0' # 1 CPU core
@@ -22,7 +23,7 @@ services:
     networks:
       - spe-network
 
-  # Envoy Proxy (simpler than Istio)
+  # Envoy Proxy (routing + admin/metrics)
   envoy-proxy:
     image: envoyproxy/envoy:v1.28.0
     container_name: envoy-proxy
@@ -30,10 +31,12 @@ services:
       - "8084:8084"   # Application traffic
       - "9901:9901"   # Admin interface with metrics
     volumes:
-      - ./envoy-config.yaml:/etc/envoy/envoy.yaml:ro
+      - ./envoy-config-swarm.yaml:/etc/envoy/envoy.yaml:ro
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
     depends_on:
       - mm1-server
+    deploy:
+      replicas: 1
     networks:
       - spe-network
 
@@ -52,7 +55,10 @@ services:
     privileged: true
     devices:
       - /dev/kmsg
-    restart: unless-stopped
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
     networks:
       - spe-network
 
@@ -72,7 +78,10 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--storage.tsdb.retention.time=7d'
       - '--web.enable-lifecycle'
-    restart: unless-stopped
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
     networks:
       - spe-network
 
@@ -81,4 +90,6 @@ volumes:
 
 networks:
   spe-network:
-    driver: bridge
+    driver: overlay
+
+

@@ -66,16 +66,22 @@ class PrometheusCollector:
         'cpu_usage': 'rate(container_cpu_usage_seconds_total{id="/system.slice"}[1m])',  # Placeholder
     }
 
-    def __init__(self, prometheus_url: str = "http://localhost:9090"):
+    def __init__(self, prometheus_url: str = "http://localhost:9090", custom_queries: Optional[Dict[str, str]] = None):
         """
         Initialize Prometheus collector.
 
         Args:
             prometheus_url: Base URL of Prometheus server
+            custom_queries: Optional custom queries to override defaults (for K8s/Istio)
         """
         self.base_url = prometheus_url.rstrip('/')
         self.session = requests.Session()
         self._mm1_container_id = None
+
+        # Use custom queries if provided, otherwise use defaults
+        if custom_queries:
+            self.QUERIES = {**self.QUERIES, **custom_queries}
+            print(f"PrometheusCollector: Using custom queries for {list(custom_queries.keys())}")
 
     def query(self, query: str, time_point: Optional[float] = None) -> Dict:
         """

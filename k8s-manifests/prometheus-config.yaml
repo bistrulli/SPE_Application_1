@@ -1,0 +1,85 @@
+# Note: MM1 server application does not expose /metrics endpoint
+# We rely on Istio proxy metrics instead for service mesh observability
+# This eliminates the need for application-level instrumentation
+---
+# ServiceMonitor for Istio proxy metrics (sidecar)
+# This captures the Istio service mesh metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istio-proxy-metrics
+  namespace: spe-system
+  labels:
+    app: istio-proxy
+    # Labels that kube-prometheus-stack looks for
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: mm1-server
+  endpoints:
+  - port: http-envoy-prom
+    path: /stats/prometheus
+    interval: 15s
+    scrapeTimeout: 10s
+---
+# PrometheusRule for M/M/1 specific recording rules
+# kube-prometheus-stack will automatically load these rules
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mm1-performance-rules
+  namespace: spe-system
+  labels:
+    app: mm1-server
+    # Labels that kube-prometheus-stack looks for
+    release: prometheus
+spec:
+  groups:
+  - name: mm1_performance_rules
+    rules:
+    # Request rate (λ - arrival rate)
+    - record: mm1:request_rate_per_second
+      expr: rate(istio_requests_total{destination_service_name="mm1-server"}[1m])
+
+    # Response time percentiles (convert from milliseconds to seconds)
+    - record: mm1:response_time_p50
+      expr: histogram_quantile(0.50, rate(istio_request_duration_milliseconds_bucket{destination_service_name="mm1-server"}[1m])) / 1000
+
+    - record: mm1:response_time_p95
+      expr: histogram_quantile(0.95, rate(istio_request_duration_milliseconds_bucket{destination_service_name="mm1-server"}[1m])) / 1000
+
+    - record: mm1:response_time_p99
+      expr: histogram_quantile(0.99, rate(istio_request_duration_milliseconds_bucket{destination_service_name="mm1-server"}[1m])) / 1000
+
+    # Service rate (μ - theoretical based on service time)
+    - record: mm1:theoretical_service_rate
+      expr: 1 / 6  # 1/SERVICE_TIME_SECONDS (adjust based on deployment)
+
+    # Utilization (ρ = λ/μ)
+    - record: mm1:utilization_theoretical
+      expr: mm1:request_rate_per_second / mm1:theoretical_service_rate
+
+    # CPU utilization from native K8s metrics (as fraction 0-1)
+    - record: mm1:cpu_utilization_fraction
+      expr: rate(container_cpu_usage_seconds_total{pod=~"mm1-server-.*"}[1m])
+
+    # CPU utilization as percentage
+    - record: mm1:cpu_utilization_percent
+      expr: mm1:cpu_utilization_fraction * 100
+
+    # Memory utilization percentage
+    - record: mm1:memory_utilization_percent
+      expr: (container_memory_working_set_bytes{pod=~"mm1-server-.*"} / container_spec_memory_limit_bytes{pod=~"mm1-server-.*"}) * 100
+
+    # Queue length estimation (Little's Law: L = λ * W)
+    - record: mm1:queue_length_estimated
+      expr: mm1:request_rate_per_second * mm1:response_time_p50
+
+    # Error rate
+    - record: mm1:error_rate
+      expr: rate(istio_requests_total{destination_service_name="mm1-server",response_code!~"2.."}[1m]) / rate(istio_requests_total{destination_service_name="mm1-server"}[1m])
+
+    # Throughput (successful requests per second)
+    - record: mm1:throughput
+      expr: rate(istio_requests_total{destination_service_name="mm1-server",response_code="200"}[1m])

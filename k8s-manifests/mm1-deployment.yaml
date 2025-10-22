@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mm1-server
+  namespace: spe-system
+  labels:
+    app: mm1-server
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mm1-server
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: mm1-server
+        version: v1
+      annotations:
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+      - name: mm1-server
+        image: bistrulli/generic-microservice-tester:0.7-exp
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SERVICE_NAME
+          value: "MM1-Server"
+        - name: SERVICE_TIME_SECONDS
+          value: "0.1"
+        - name: OUTBOUND_CALLS
+          value: ""
+        - name: GUNICORN_WORKERS
+          value: "1"
+        - name: GUNICORN_THREADS
+          value: "1"
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1536Mi"
+          requests:
+            cpu: "1000m"
+            memory: "1536Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mm1-server
+  namespace: spe-system
+  labels:
+    app: mm1-server
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 15090
+    targetPort: 15090
+    protocol: TCP
+    name: http-envoy-prom
+  selector:
+    app: mm1-server
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spe-system
+  labels:
+    istio-injection: enabled
